@@ -86,7 +86,6 @@ class HigherPointPartMinimal(nn.Module):
         self.n_terms = n_terms
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.fc = nn.Linear(in_features=in_channels, out_features=in_channels, bias=False)
         self.activate = nn.ReLU()
         self.bn = WeightedBatchNorm1d(num_features=self.n_terms * self.in_channels, affine=False)
         self.weight = nn.Parameter(
@@ -120,7 +119,7 @@ class HigherPointPartMinimal(nn.Module):
             input=torch.zeros_like(part_weight).repeat(1, self.n_terms * self.in_channels),
             dim=0,
             index=torch.broadcast_to(pair_head, (-1, self.n_terms * self.in_channels)),
-            src=(((self.activate(self.fc(part_features)) * part_weight).gather(dim=0,
+            src=(((self.activate(part_features) * part_weight).gather(dim=0,
                                                                                index=torch.broadcast_to(pair_tail,
                                                                                                         (-1,
                                                                                                          self.in_channels))
