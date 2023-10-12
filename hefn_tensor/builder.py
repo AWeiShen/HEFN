@@ -54,7 +54,7 @@ class WeightedBatchNorm(nn.BatchNorm1d):
         features_bn = (features - mean) / torch.sqrt(var + self.eps)
         return features_bn
 
-
+# Three Examples
 class Triangle(nn.Module):
     """
         i
@@ -117,6 +117,78 @@ class Triangle(nn.Module):
         )
         return jet_features
 
+
+class Quadrangle(nn.Module):
+    """
+    i       j
+      O---O
+      |   |
+      O---O
+    k       l
+    """
+
+    def __init__(self, n_terms, n_channels, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super().__init__()
+
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+
+        self.coeff_1 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+        self.coeff_2 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+        self.coeff_3 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+        self.coeff_4 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+
+        self.bn_1 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
+        self.bn_2 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
+        self.bn_3 = WeightedBatchNorm(n_channels=n_channels, n_dim=1)
+
+    def forward(self, inp):
+        part_weight, pair_weight = inp
+        features = pair_weight
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1)
+        features = torch.einsum(
+            'paik, pblk, at, bt -> ptil',
+            features,
+            pair_weight,
+            self.coeff_1,
+            self.coeff_2
+        )
+        features = torch.nn.functional.relu(features)
+        features = self.bn_1([features, part_weight])
+
+        short_cut = features
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1)
+        features = torch.einsum(
+            'ptil, pcjl, ct -> ptij',
+            features,
+            pair_weight,
+            self.coeff_3,
+        )
+        features = torch.nn.functional.relu(features)
+        features = features + short_cut
+        features = self.bn_2([features, part_weight])
+
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1)
+        short_cut = torch.sum(
+            features,
+            dim=-1
+        )
+        features = torch.einsum(
+            'ptij, pdij, dt -> pti',
+            features,
+            pair_weight,
+            self.coeff_4,
+        )
+        features = torch.nn.functional.relu(features)
+        features = features + short_cut
+        features = self.bn_3([features, part_weight])
+
+        jet_features = torch.sum(
+            features * part_weight.unsqueeze(+1),
+            dim=-1
+        )
+        return jet_features
 
 
 class Path(nn.Module):
