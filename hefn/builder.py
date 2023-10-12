@@ -94,6 +94,7 @@ class HigherPointPartMinimal(nn.Module):
                        device='cuda',
                        requires_grad=True)
         )
+        torch.nn.init.kaiming_uniform_(self.weight, mode='fan_in', nonlinearity='relu')
         self.bias = nn.Parameter(
             torch.zeros(size=(self.in_channels,),
                         dtype=torch.float32,
