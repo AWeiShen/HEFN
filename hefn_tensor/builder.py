@@ -267,4 +267,24 @@ class Path(nn.Module):
         )
         return jet_features
 
+class JetCLS(nn.Module):
+    def __init__(
+            self,
+            n_terms=8,
+            n_channels=32
+    ):
+        super(JetCLS, self).__init__()
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+        # self.triangle = Triangle(n_terms=n_terms, n_channels=n_channels)
+        # self.quadrangle = Quadrangle(n_terms=n_terms, n_channels=n_channels)
+        self.path = Path(n_terms=n_terms, n_channels=n_channels, n_point=5)
+        self.linear_classifier = nn.Linear(n_channels, 1)
 
+    def forward(self, inp):
+        part_weight, pair_weight = inp
+        jet_features = self.path([part_weight, pair_weight])
+        jet_features = torch.nn.functional.layer_norm(jet_features, normalized_shape=(self.n_channels,))
+        jet_features = self.linear_classifier(jet_features)
+        jet = torch.nn.functional.sigmoid(jet_features)
+        return jet
