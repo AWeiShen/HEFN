@@ -53,3 +53,126 @@ class WeightedBatchNorm(nn.BatchNorm1d):
         var = var.reshape((self.num_features,) + (1,) * self.n_dim)
         features_bn = (features - mean) / torch.sqrt(var + self.eps)
         return features_bn
+
+
+class Triangle(nn.Module):
+    """
+        i
+        O
+       / \
+    j O---O k
+
+    \sum_{i} z_{i} ReLU(\sum_{j} z_{j} P_{ij} ReLU(\sum_{k} z_{k} P_{jk} P_{ik}) )
+    trainable parameters are coeff_0, coeff_1, coeff_2, coeff_3, total: 4 * n_terms * n_channels
+
+    """
+
+    def __init__(self, n_terms, n_channels, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super().__init__()
+
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+
+        self.coeff_1 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+        self.coeff_2 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+        self.coeff_3 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+
+        self.bn_1 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
+        self.bn_2 = WeightedBatchNorm(n_channels=n_channels, n_dim=1)
+
+    def forward(self, inp):
+        part_weight, pair_weight = inp  # z_{i}, p_{ij}
+
+        features = pair_weight
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1)
+        features = torch.einsum(
+            'pajk, pbik, at, bt -> ptij',
+            features,
+            pair_weight,
+            self.coeff_1,
+            self.coeff_2
+        )
+        features = torch.nn.functional.relu(features)
+
+        features = self.bn_1([features, part_weight])
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1)
+        short_cut = torch.sum(
+            features,
+            dim=-1
+        )
+        features = torch.einsum(
+            'ptij, paij, at -> pti',
+            features,
+            pair_weight,
+            self.coeff_3
+        )
+        features = torch.nn.functional.relu(features)
+        features = features + short_cut
+
+        features = self.bn_2([features, part_weight])
+        jet_features = torch.sum(
+            features * part_weight.unsqueeze(+1),
+            dim=-1
+        )
+        return jet_features
+
+
+
+class Path(nn.Module):
+    """
+    O--O--O--O-...
+    i--j--k--l-...
+    \sum_{i}z_{i} ReLU(\sum_{j}z_{j} P_{ij} ReLU(\sum_{k}z_{k} P_{kl}(...) ) )
+
+    """
+
+    def __init__(self, n_terms, n_channels, n_point, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super().__init__()
+        assert n_point >= 2
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+        self.n_point = n_point
+
+        self.coeff_list = nn.ParameterList([
+            nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
+            for _ in range(n_point - 1)
+        ])
+
+        self.bn_list = nn.ModuleList([
+            WeightedBatchNorm(n_channels=n_channels, n_dim=1)
+            for _ in range(n_point - 1)
+        ])
+
+    def forward(self, inp):
+        part_weight, pair_weight = inp
+        features = torch.einsum(
+            'pj, paij, at -> pti',
+            part_weight,
+            pair_weight,
+            self.coeff_list[0]
+        )
+        features = torch.nn.functional.relu(features)
+        features = self.bn_list[0]([features, part_weight])
+
+        for i in range(1, self.n_point - 1):
+            short_cut = features
+            features = features * part_weight.unsqueeze(+1)
+            features = torch.einsum(
+                'ptj, paij, at -> pti',
+                features,
+                pair_weight,
+                self.coeff_list[i]
+            )
+            features = torch.nn.functional.relu(features)
+            features = features + short_cut
+            features = self.bn_list[i]([features, part_weight])
+
+        jet_features = torch.sum(
+            features * part_weight.unsqueeze(+1),
+            dim=-1
+        )
+        return jet_features
+
+
