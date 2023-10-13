@@ -19,6 +19,7 @@ class JetDataset(data.Dataset):
         part_kin = self.data['jet'][item]
         jet_size = self.data['size'][item]
         part_weight = part_kin[:, 0:1] / torch.sum(part_kin[:, 0])
+        part_weight_bool = part_weight > 1e-7
         part_coord = part_kin[0:jet_size, 1:3]
         pair_indices = torch.triu_indices(jet_size, jet_size, offset=1)
         diag_indices = torch.arange(jet_size)
@@ -31,7 +32,7 @@ class JetDataset(data.Dataset):
 
         pair_radius = torch.sqrt(torch.clamp_min(pair_radius_square, 1e-9))
         pair_weight_sparse = pair_radius * 2. / self.radius_max - 1.
-        pair_weight_dense = torch.zeros(size=(self.n_terms, self.max_length , self.max_length), dtype=torch.float32)
+        pair_weight_dense = torch.zeros(size=(self.n_terms, self.max_length, self.max_length), dtype=torch.float32)
         p0 = torch.ones_like(pair_weight_sparse)
         p1 = pair_weight_sparse
         pa = p0
@@ -50,5 +51,10 @@ class JetDataset(data.Dataset):
             pa = pb
             pb = pc
 
-        return part_weight.squeeze(-1), pair_weight_dense, self.label[item].float()
+        return part_weight.squeeze(-1), \
+            part_weight_bool.squeeze(-1), \
+            pair_weight_dense, \
+            self.label[item].float()
 
+
+# dataset = JetDataset(dataset_file='./dataset/Top64/test/test.pt')
