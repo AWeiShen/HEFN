@@ -11,7 +11,7 @@ B. the \hefn_tensor is an updated version of our code. It allows for the constru
 for example:
 
   O
- / \
+ / \\
 O---O
 
 
