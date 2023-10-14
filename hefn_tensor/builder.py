@@ -64,88 +64,6 @@ class WeightedBatchNorm(nn.BatchNorm1d):
 
 # Tree Examples
 
-class Quadrangle(nn.Module):
-    """
-    i       j
-      O---O
-      |   |
-      O---O
-    k       l
-    """
-
-    def __init__(self, n_terms, n_channels, device=None, dtype=None):
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super().__init__()
-
-        self.n_terms = n_terms
-        self.n_channels = n_channels
-
-        self.weight_1 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
-        torch.nn.init.kaiming_uniform_(self.weight_1, mode='fan_in', nonlinearity='relu')
-        self.weight_2 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
-        torch.nn.init.kaiming_uniform_(self.weight_2, mode='fan_in', nonlinearity='relu')
-        self.weight_3 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
-        torch.nn.init.kaiming_uniform_(self.weight_3, mode='fan_in', nonlinearity='relu')
-        self.weight_4 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
-        torch.nn.init.kaiming_uniform_(self.weight_4, mode='fan_in', nonlinearity='relu')
-
-        self.bias_1 = nn.Parameter(torch.zeros((1, n_channels, 1, 1), **factory_kwargs), requires_grad=True)
-        self.bias_2 = nn.Parameter(torch.zeros((1, n_channels, 1, 1), **factory_kwargs), requires_grad=True)
-        self.bias_3 = nn.Parameter(torch.zeros((1, n_channels, 1), **factory_kwargs), requires_grad=True)
-
-        self.bn_1 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
-        self.bn_2 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
-
-    def forward(self, inp):
-        part_weight, part_mask, pair_weight = inp
-        features = pair_weight
-        features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        features = torch.einsum(
-            'paik, pblk, at, bt -> ptil',
-            features,
-            pair_weight,
-            self.weight_1,
-            self.weight_2
-        )
-        features = features + self.bias_1
-        features = torch.nn.functional.relu(features)
-
-        features = self.bn_1([features, part_weight, part_mask])
-
-        short_cut = features
-        features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        features = torch.einsum(
-            'ptil, pcjl, ct -> ptij',
-            features,
-            pair_weight,
-            self.weight_3,
-        )
-        features = features + self.bias_2
-        features = torch.nn.functional.relu(features)
-        features = features + short_cut
-        features = self.bn_2([features, part_weight, part_mask])
-
-        features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        short_cut = torch.sum(
-            features,
-            dim=-1
-        )
-        features = torch.einsum(
-            'ptij, pdij, dt -> pti',
-            features,
-            pair_weight,
-            self.weight_4,
-        )
-        features = features + self.bias_3
-        features = torch.nn.functional.relu(features)
-        features = features + short_cut
-
-        jet_features = torch.sum(
-            features * part_weight.unsqueeze(+1) * part_mask.unsqueeze(+1),
-            dim=-1
-        )
-        return jet_features
-
 
 class Triangle(nn.Module):
     """
@@ -158,54 +76,34 @@ class Triangle(nn.Module):
 
     """
 
-    def __init__(self, n_terms, n_channels, device=None, dtype=None):
-        factory_kwargs = {'device': device, 'dtype': dtype}
+    def __init__(self, n_terms, n_channels):
         super().__init__()
 
         self.n_terms = n_terms
         self.n_channels = n_channels
-
-        self.weight_1 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
-        torch.nn.init.kaiming_uniform_(self.weight_1, mode='fan_in', nonlinearity='relu')
-        self.weight_2 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
-        torch.nn.init.kaiming_uniform_(self.weight_2, mode='fan_in', nonlinearity='relu')
-        self.weight_3 = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs))
-        torch.nn.init.kaiming_uniform_(self.weight_3, mode='fan_in', nonlinearity='relu')
-
-        self.bias_1 = nn.Parameter(torch.zeros((1, n_channels, 1, 1), **factory_kwargs))
-        self.bias_2 = nn.Parameter(torch.zeros((1, n_channels, 1), **factory_kwargs))
+        self.higher_point_init = HigherPointInit(
+            n_dim=2,
+            n_channels=n_channels,
+            n_terms=n_terms
+        )
+        self.higher_point_1 = HigherPointV3(
+            n_dim=2,
+            n_index=1,
+            in_channels=n_channels,
+            out_channels=n_channels,
+            n_terms=n_terms
+        )
 
         self.bn_1 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
 
     def forward(self, inp):
         part_weight, part_mask, pair_weight = inp
 
-        features = pair_weight
-        features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        features = torch.einsum(
-            'pajk, pbik, at, bt -> ptij',
-            features,
-            pair_weight,
-            self.weight_1,
-            self.weight_2
-        )
-        features = features + self.bias_1
-        features = torch.nn.functional.relu(features)
-
+        features = self.higher_point_init([part_weight, part_mask, pair_weight])
         features = self.bn_1([features, part_weight, part_mask])
         features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        short_cut = torch.sum(
-            features,
-            dim=-1
-        )
-        features = torch.einsum(
-            'ptij, paij, at -> pti',
-            features,
-            pair_weight,
-            self.weight_3
-        )
-        features = features + self.bias_2
-        features = torch.nn.functional.relu(features)
+        short_cut = torch.sum(features, dim=-1)
+        features = self.higher_point_1([features, pair_weight])
         features = features + short_cut
 
         jet_features = torch.sum(
@@ -222,15 +120,14 @@ class Path(nn.Module):
     \sum_{i}z_{i} ReLU(\sum_{j}z_{j} P_{ij} ReLU(\sum_{k}z_{k} P_{kl}(...) ) )
     """
 
-    def __init__(self, n_terms, n_channels, n_point, device=None, dtype=None):
-        factory_kwargs = {'device': device, 'dtype': dtype}
+    def __init__(self, n_terms, n_channels, n_point):
         super().__init__()
         assert n_point >= 2
         self.n_terms = n_terms
         self.n_channels = n_channels
         self.n_point = n_point
 
-        self.weight = nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
+        self.higher_point_init = HigherPointInit(n_dim=1, n_channels=n_channels, n_terms=n_terms)
         self.higher_point = nn.ModuleList([
             HigherPointV2(
                 n_dim=1,
@@ -247,10 +144,7 @@ class Path(nn.Module):
 
     def forward(self, inp):
         part_weight, part_mask, pair_weight = inp
-
-        features = pair_weight * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
-        features = torch.sum(features, dim=-1)
-        features = torch.einsum('pzi, zv -> pvi', features, self.weight)
+        features = self.higher_point_init([part_weight, part_mask, pair_weight])
         for i in range(self.n_point - 2):
             short_cut = features
             features = self.bn_list[i]([features, part_weight, part_mask])
@@ -262,6 +156,73 @@ class Path(nn.Module):
             dim=-1
         )
 
+        return jet_features
+
+
+class Quadrangle(nn.Module):
+    """
+    i       j
+      O---O
+      | X |
+      O---O
+    k       l
+    CUDA Memory Blaster
+    """
+
+    def __init__(self, n_terms, n_channels):
+        super().__init__()
+
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+
+        self.higher_point_init = HigherPointInit(
+            n_dim=3,
+            n_channels=n_channels,
+            n_terms=n_terms
+        )
+        self.higher_point_1 = HigherPointV1(
+            n_dim=3,
+            n_index=1,
+            n_channels=n_channels,
+            n_terms=n_terms
+        )
+        self.higher_point_2 = HigherPointV1(
+            n_dim=3,
+            n_index=2,
+            n_channels=n_channels,
+            n_terms=n_terms
+        )
+        self.higher_point_3 = HigherPointV1(
+            n_dim=2,
+            n_index=1,
+            n_channels=n_channels,
+            n_terms=n_terms
+        )
+        self.bn_1 = WeightedBatchNorm(n_channels=n_channels, n_dim=3)
+        self.bn_2 = WeightedBatchNorm(n_channels=n_channels, n_dim=2)
+
+    def forward(self, inp):
+        part_weight, part_mask, pair_weight = inp
+        features = self.higher_point_init([part_weight, part_mask, pair_weight])
+
+        features = self.bn_1([features, part_weight, part_mask])
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(
+            +1).unsqueeze(+1)
+        features_0 = torch.sum(features, dim=-1)
+        features_1 = self.higher_point_1([features, pair_weight])
+        features_2 = self.higher_point_2([features, pair_weight])
+        features = features_0 + features_1 + features_2
+
+        features = self.bn_2([features, part_weight, part_mask])
+        features = features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
+        features_0 = torch.sum(features, dim=-1)
+        features_1 = self.higher_point_3([features, pair_weight])
+        features = features_0 + features_1
+
+        jet_features = torch.sum(
+            features * part_weight.unsqueeze(+1) * part_mask.unsqueeze(+1),
+            dim=-1
+        )
         return jet_features
 
 
@@ -503,6 +464,53 @@ class HigherPointV4(nn.Module):
         return features
 
 
+class HigherPointInit(nn.Module):
+    """
+    input part_weight, pair_weight
+    output p^{z}_{ijkl...}
+    """
+
+    def __init__(self, n_dim, n_channels, n_terms, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        assert n_dim > 0
+        super().__init__()
+        subscript_characters = 'ijklrst'
+        superscript_characters = 'abcdefg'
+        self.n_dim = n_dim
+        self.n_terms = n_terms
+        self.n_channels = n_channels
+        self.weight_list = nn.ParameterList([
+            nn.Parameter(torch.rand((n_terms, n_channels), **factory_kwargs), requires_grad=True)
+            for _ in range(n_dim)
+        ])
+        for para in self.weight_list:
+            torch.nn.init.kaiming_uniform_(para, mode='fan_in', nonlinearity='relu')
+        self.bias = nn.Parameter(torch.zeros((n_channels,) + (1,) * n_dim))
+        self.einsum_string = (', '.join(['p' + superscript_characters[i] + subscript_characters[i] + 'x'
+                                         for i in range(n_dim)
+                                         ])
+                              + ', '
+                              + ', '.join([superscript_characters[i] + 'z'
+                                           for i in range(n_dim)
+                                           ])
+                              + ' -> '
+                              + 'pz' + subscript_characters[:n_dim]
+                              )
+
+    def forward(self, inp):
+        part_weight, part_mask, pair_features = inp
+        features = pair_features * part_weight.unsqueeze(+1).unsqueeze(+1) * part_mask.unsqueeze(+1).unsqueeze(+1)
+        features = torch.einsum(
+            self.einsum_string,
+            (features,)
+            + tuple([pair_features for _ in range(self.n_dim - 1)])
+            + tuple(self.weight_list)
+        )
+        features = features + self.bias
+        features = torch.nn.functional.relu(features)
+        return features
+
+
 class JetCLS(nn.Module):
     def __init__(
             self,
@@ -513,13 +521,13 @@ class JetCLS(nn.Module):
         self.n_terms = n_terms
         self.n_channels = n_channels
         # self.triangle = Triangle(n_terms=n_terms, n_channels=n_channels)
-        # self.quadrangle = Quadrangle(n_terms=n_terms, n_channels=n_channels)
-        self.path = Path(n_terms=n_terms, n_channels=n_channels, n_point=4)
+        self.quadrangle = Quadrangle(n_terms=n_terms, n_channels=n_channels)
+        # self.path = Path(n_terms=n_terms, n_channels=n_channels, n_point=4)
         self.linear_classifier = nn.Linear(n_channels, 1)
 
     def forward(self, inp):
         part_weight, part_mask, pair_weight = inp
-        jet_features = self.path([part_weight, part_mask, pair_weight])
+        jet_features = self.quadrangle([part_weight, part_mask, pair_weight])
         jet_features = torch.nn.functional.layer_norm(
             jet_features,
             normalized_shape=(self.n_channels,)
