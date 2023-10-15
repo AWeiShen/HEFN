@@ -13,6 +13,7 @@ We only give a few of minimal HEFNs exmaples (hundreds of trainable parameters a
 However, we want to note that high-dimensional tensors may impose a burden on CUDA memory, which could be relaxed by
 1. using kinematic information of subjets rather than consitituents of jet
 2. using more effiecient methods to save and operate symmetric tensors
+
               
     
 
