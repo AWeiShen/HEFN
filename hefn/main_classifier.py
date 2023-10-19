@@ -1,3 +1,4 @@
+# The following code is adapted from [simsiam] by [facebookresearch], available at [https://github.com/facebookresearch/simsiam/blob/main/main_lincls.py].
 import argparse
 import builtins
 import math
@@ -91,7 +92,7 @@ def validate(val_loader, model, args):
     return _auc
 
 
-# utils below are copy from https://github.com/facebookresearch/simsiam/blob/main/main_lincls.py
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
